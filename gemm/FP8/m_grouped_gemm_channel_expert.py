@@ -155,8 +155,7 @@ def gmm_fp8_act_per_channel_w_per_expert(A: Tensor,
     group_pad_off = torch.zeros(size_per_group.shape[0] + 1, device = "cuda", dtype = torch.int32)
     
     BLOCK_M = 128
-    # size_per_group_padding = ((size_per_group + BLOCK_M -1 ) / BLOCK_M).int() * BLOCK_M
-    size_per_group_padding = triton.cdiv(size_per_group, BLOCK_M) * BLOCK_M - 20
+    size_per_group_padding = ((size_per_group + BLOCK_M -1 ) / BLOCK_M).int() * BLOCK_M
     group_pad_off[1:] = size_per_group_padding.cumsum(0)
     
     C = A.new_empty(M, N, dtype=dtype_out)
@@ -350,6 +349,7 @@ if __name__=='__main__':
     amax = max(output_tensor.abs().max(), ref_fwd.abs().max())
     adiffmax = (output_tensor - ref_fwd).abs().max()
     rdiffmax = adiffmax / amax
+    # import pdb; pdb.set_trace()
     print(f"max relative difference of the layer is {rdiffmax}")
     
     # Get time from trace
