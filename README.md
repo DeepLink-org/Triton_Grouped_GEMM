@@ -45,7 +45,7 @@ M-Grouped Gemm
 
 
 
-M-Grouped Gemm with mask
+M-Grouped Gemm with mask(It can't work when trans_b=False)
 | trans_b | Matrix Dimensions (n x k x M_masked) | Elapsed Time (ms) | Tflops |
 |---------|--------------------------------------|-------------------|--------|
 | True    | 1536 x 2048 x 98325                  | 1.02              | 608.0  |
