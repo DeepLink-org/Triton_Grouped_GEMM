@@ -62,6 +62,11 @@ The following FP8 implementations are available in `gemm/FP8/`:
 |`m_grouped_gemm_channel_expert.py` | M-Grouped Gemm | Per-channel for activation, per-expert for weight  |
 |`k_grouped_gemm_channel_expert.py` | K-Grouped Gemm |Per-channel for activation, per-expert for weight  |
 
+The result of FP8 implementations
+| Implementation                  | Max Relative Difference | Execution Time (ms) | Tflops |
+|---------------------------------|-------------------------|---------------------|--------|
+| m_grouped_gemm_channel_expert   | 0.058349609375          | 9.3 ms              | 442.0  |
+| k_grouped_gemm_channel_expert   | 0.060546875             | 9.9 ms              | 646.0  |
 
 ### Additional Resources
 
