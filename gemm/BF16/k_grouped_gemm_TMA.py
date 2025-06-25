@@ -245,7 +245,9 @@ if __name__=='__main__':
         return out.contiguous()
 
     groups = 128; z = groups
-    trans_b = False; trans_a = True
+    trans_b = True; trans_a = True
+    print(f"{trans_b = }")
+    print(f"{trans_a = }")
     batch_sizes = torch.Tensor(generate_random_list(groups, groups*4096)).cuda().to(torch.int64).abs()
     batch_sizes_cpu = batch_sizes.cpu()
     K = batch_sizes.sum().item()

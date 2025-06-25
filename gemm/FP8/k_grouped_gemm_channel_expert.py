@@ -408,8 +408,9 @@ if __name__ == "__main__":
             with_modules = True,
             record_shapes=True,) as prof:
         for i in range(4+active_):
+
             output1 = matmul(x_fp81, x_scale1, y_fp81, y_scale1, tokens_per_expert_pad, M1, N1, K, num_groups, dtype_a, dtype_b)
-            output2 = matmul(x_fp82, x_scale2, y_fp82, y_scale2, tokens_per_expert_pad, M2, N2, K, num_groups, dtype_a, dtype_b)
+            # output2 = matmul(x_fp82, x_scale2, y_fp82, y_scale2, tokens_per_expert_pad, M2, N2, K, num_groups, dtype_a, dtype_b)
             torch.cuda.synchronize()
             prof.step()
 
@@ -418,10 +419,10 @@ if __name__ == "__main__":
     rdiffmax = adiffmax / amax
     print(f"max relative difference of the first layer is {rdiffmax}")
 
-    amax = max(output2.abs().max(), ref_dw2.abs().max())
-    adiffmax = (output2 - ref_dw2).abs().max()
-    rdiffmax = adiffmax / amax
-    print(f"max relative difference of the second layer is {rdiffmax}")
+    # amax = max(output2.abs().max(), ref_dw2.abs().max())
+    # adiffmax = (output2 - ref_dw2).abs().max()
+    # rdiffmax = adiffmax / amax
+    # print(f"max relative difference of the second layer is {rdiffmax}")
     
     # Get time from trace
     import json

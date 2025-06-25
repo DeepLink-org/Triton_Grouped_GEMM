@@ -413,7 +413,7 @@ if __name__=='__main__':
         trace_file = f"{parent_dir}/trace/gmm_triton_cublas_cutlass_N{n}_K{k}"  + ".json"
         import os
         Path(os.path.join(parent_dir, "trace")) .mkdir(parents=True, exist_ok=True)
-        activate_ = 3
+        activate_ = 10
         def trace_handler(prof):
             prof.export_chrome_trace(trace_file)
         with profile(
