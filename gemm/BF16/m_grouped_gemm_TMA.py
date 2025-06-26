@@ -119,7 +119,7 @@ def m_grouped_gemm_bKmajor_kernel(
         else:
             offs_cm_ = offs_cm + tl.arange(0, BLOCK_M)
             offs_cn_ = offs_cn + tl.arange(0, BLOCK_N)
-            c_ptrs = C + N * offs_cm_[:, None] + offs_cn_[None, :]
+            c_ptrs = C + N * offs_cm_[:, None].to(tl.int64) + offs_cn_[None, :]
             c_mask = (offs_cm_[:, None] < group_end) & (offs_cn_[None, :] < N)
             tl.store(c_ptrs, c, mask=c_mask)
 
@@ -200,7 +200,7 @@ def m_grouped_gemm_bNmajor_kernel(
         else:
             offs_cm_ = offs_cm + tl.arange(0, BLOCK_M)
             offs_cn_ = offs_cn + tl.arange(0, BLOCK_N)
-            c_ptrs = C + N * offs_cm_[:, None] + offs_cn_[None, :]
+            c_ptrs = C + N * offs_cm_[:, None].to(tl.int64) + offs_cn_[None, :]
             c_mask = (offs_cm_[:, None] < group_end) & (offs_cn_[None, :] < N)
             tl.store(c_ptrs, c, mask=c_mask)
 
@@ -390,9 +390,9 @@ if __name__=='__main__':
 
 
     groups = 128; z = groups
-    trans_b = False; print(f"{trans_b = }")
+    trans_b = True; print(f"{trans_b = }")
     device = f"cuda:{torch.cuda.device_count()-1}"
-    batch_sizes = torch.Tensor(generate_random_list(groups, groups*4096)).to(device).to(torch.int64)
+    batch_sizes = torch.Tensor(generate_random_list(groups, groups*5120)).to(device).to(torch.int64)
   
     batch_sizes_cpu = batch_sizes.cpu()
     M = batch_sizes.sum().item()

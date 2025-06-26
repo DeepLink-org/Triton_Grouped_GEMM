@@ -108,8 +108,8 @@ def k_grouped_gemm_kernel(
             offs_k += BLOCK_K
         if tokens > 0:
             offs_k_final = group_start + (num_pid_k - 1) * BLOCK_K + tl.arange(0, BLOCK_K)
-            a_ptrs = A + ((offs_am + tl.arange(0, BLOCK_M))[None, :] + offs_k_final[:, None] * M)
-            b_ptrs = B + ((offs_bn + tl.arange(0, BLOCK_N))[None, :] + offs_k_final[:, None] * N)
+            a_ptrs = A + ((offs_am + tl.arange(0, BLOCK_M))[None, :] + offs_k_final[:, None].to(tl.int64) * M)
+            b_ptrs = B + ((offs_bn + tl.arange(0, BLOCK_N))[None, :] + offs_k_final[:, None].to(tl.int64) * N)
             maskA = (offs_k_final[:, None] < group_end)
             maskB = (offs_k_final[:, None] < group_end)
             a = tl.load(a_ptrs, mask=maskA, other=0.0)
@@ -245,10 +245,8 @@ if __name__=='__main__':
         return out.contiguous()
 
     groups = 128; z = groups
-    trans_b = True; trans_a = True
-    print(f"{trans_b = }")
-    print(f"{trans_a = }")
-    batch_sizes = torch.Tensor(generate_random_list(groups, groups*4096)).cuda().to(torch.int64).abs()
+
+    batch_sizes = torch.Tensor(generate_random_list(groups, groups*5120)).cuda().to(torch.int64).abs()
     batch_sizes_cpu = batch_sizes.cpu()
     K = batch_sizes.sum().item()
 
