@@ -18,40 +18,36 @@ The following BF16 implementations are available in `gemm/BF16`:
 |`m_grouped_gemm_TMA.py` | M-Grouped Gemm |
 |`k_grouped_gemm_TMA.py` | K-Grouped Gemm |
 
-K-Grouped Gemm
-| trans_b | trans_a | Matrix Dimensions (m x n x K) | Elapsed Time (ms) | Tflops |
-|---------|---------|-------------------------------|-------------------|--------|
-| True    | True    | 1536 x 2048 x 524288          | 4.75              | 694.0  |
-| True    | True    | 2048 x 768 x 524288           | 2.78              | 594.0  |
-| True    | True    | 3072 x 4096 x 524288          | 19.58             | 674.0  |
-| True    | True    | 4096 x 1536 x 524288          | 10.36             | 637.0  |
-| False   | True    | 1536 x 2048 x 524288          | 4.7               | 701.0  |
-| False   | True    | 2048 x 768 x 524288           | 2.53              | 652.0  |
-| False   | True    | 3072 x 4096 x 524288          | 19.73             | 669.0  |
-| False   | True    | 4096 x 1536 x 524288          | 10.85             | 608.0  |
+
+M-Grouped Gemm with TMA 
+| trans_b | Dimensions (M x N x K,z=128) | ours_Elapsed Time (ms) | ours_TFLOPS | Benchmark_Elapsed Time (ms) | Benchmark_TFLOPS |
+|:-------:|:----------------------------:|:----------------------:|:-----------:|:---------------------------:|:----------------:|
+| True    | 655360 x 2048 x 768          | 3.53                   | 584.0       | 2.55                        | 808.0            |
+| True    | 655360 x 1536 x 2048         | 5.79                   | 712.0       | 4.90                        | 842.0            |
+| True    | 655360 x 4096 x 1536         | 11.78                  | 700.0       | 10.12                       | 815.0            |
+| True    | 655360 x 3072 x 4096         | 26.38                  | 625.0       | 20.61                       | 800.0            |
+| False   | 655360 x 2048 x 768          | 3.35                   | 616.0       | 2.93                        | 703.0            |
+| False   | 655360 x 1536 x 2048         | 5.65                   | 729.0       | 4.90                        | 842.0            |
+| False   | 655360 x 4096 x 1536         | 11.82                  | 698.0       | 11.22                       | 734.0            |
+| False   | 655360 x 3072 x 4096         | 24.56                  | 672.0       | 20.68                       | 797.0            |
 
 
-M-Grouped Gemm
-| trans_b | Matrix Dimensions (n x k x M) | Elapsed Time (ms) | Tflops |
-|---------|-------------------------------|-------------------|--------|
-| True    | 1536 x 2048 x 524288          | 4.61              | 716.0  |
-| True    | 2048 x 768 x 524288           | 2.58              | 639.0  |
-| True    | 3072 x 4096 x 524288          | 17.67             | 747.0  |
-| True    | 4096 x 1536 x 524288          | 9.27              | 712.0  |
-| False   | 1536 x 2048 x 524288          | 4.51              | 731.0  |
-| False   | 2048 x 768 x 524288           | 2.69              | 612.0  |
-| False   | 3072 x 4096 x 524288          | 18.48             | 714.0  |
-| False   | 4096 x 1536 x 524288          | 9.53              | 693.0  |
+K-Grouped Gemmn with TMA
+| trans_a |   Dimensions (M x N x K,z=128)  | Elapsed Time (ms) | Tflops |
+|---------|---------------------------------|-------------------|--------|
+| True    | 655360 x 2048 x 768             | 3.44              | 599.0  |
+| True    | 655360 x 1536 x 2048            | 5.87              | 703.0  |
+| True    | 655360 x 4096 x 1536            | 12.29             | 671.0  |
+| True    | 655360 x 3072 x 4096            | 24.99             | 660.0  |
 
 
-
-M-Grouped Gemm with mask(It can't work when trans_b=False)
-| trans_b | Matrix Dimensions (n x k x M_masked) | Elapsed Time (ms) | Tflops |
+M-Grouped Gemm with mask and TMA(It can't work when trans_b=False)
+| trans_b | Matrix Dimensions (N x K x M_masked) | Elapsed Time (ms) | Tflops |
 |---------|--------------------------------------|-------------------|--------|
-| True    | 1536 x 2048 x 98325                  | 1.02              | 608.0  |
-| True    | 2048 x 768 x 98325                   | 0.58              | 533.0  |
-| True    | 3072 x 4096 x 98325                  | 4.02              | 616.0  |
-| True    | 4096 x 1536 x 98325                  | 2.27              | 544.0  |
+| True    | 2048 x 768 x 101215                  | 0.61              | 526.0  |
+| True    | 1536 x 2048 x 101215                 | 0.99              | 642.0  |
+| True    | 4096 x 1536 x 101215                 | 2.42              | 525.0  |
+| True    | 3072 x 4096 x 101215                 | 4.10              | 622.0  |
 
 
 ## FP8
