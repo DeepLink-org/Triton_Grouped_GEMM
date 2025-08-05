@@ -113,7 +113,7 @@ def m_grouped_gemm_bKmajor_kernel(
         c = accumulator.to(dtypeC)
         offs_cm = group_start
         offs_cn = (pid_n * BLOCK_N).to(tl.int32)
-        TMA_condition = (group_start + BLOCK_M <= group_end) | (group_start >= (M - BLOCK_M))
+        TMA_condition = (group_start + BLOCK_M <= group_end)
         if TMA_condition: 
             tl._experimental_descriptor_store(c_desc_ptr, c, [offs_cm, offs_cn])
         else:
@@ -194,7 +194,7 @@ def m_grouped_gemm_bNmajor_kernel(
         offs_cm = group_start
         offs_cn = (pid_n * BLOCK_N).to(tl.int32)
 
-        TMA_condition = (group_start + BLOCK_M <= group_end) | (group_start >= (M - BLOCK_M))
+        TMA_condition = (group_start + BLOCK_M <= group_end)
         if TMA_condition: 
             tl._experimental_descriptor_store(c_desc_ptr, c, [offs_cm, offs_cn])
         else:
@@ -373,7 +373,7 @@ if __name__=='__main__':
     
     from torch.profiler import ProfilerActivity, profile, record_function
     from torch.library import triton_op, wrap_triton
-    import grouped_gemm_backend as backend
+    # import grouped_gemm_backend as backend
 
     from utils import generate_random_list, row_max_normalization
 
@@ -393,7 +393,8 @@ if __name__=='__main__':
     trans_b = True; print(f"{trans_b = }")
     device = f"cuda:{torch.cuda.device_count()-1}"
     batch_sizes = torch.Tensor(generate_random_list(groups, groups*5120)).to(device).to(torch.int64)
-  
+    # batch_sizes = torch.tensor([1] * 128, device=device, dtype=torch.int64)
+
     batch_sizes_cpu = batch_sizes.cpu()
     M = batch_sizes.sum().item()
 
@@ -432,7 +433,8 @@ if __name__=='__main__':
                 out_triton = m_grouped_gemm(a, b, batch_sizes, trans_b)
                 torch.cuda.synchronize(device = device)
                 prof.step()
-
+        diff = out_triton - out_ref
+        breakpoint()
         # post-process, row normalization
         out_triton = row_max_normalization(out_triton)
         out_ref = row_max_normalization(out_ref)
