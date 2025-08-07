@@ -194,7 +194,7 @@ def m_grouped_gemm_bNmajor_kernel(
         offs_cm = group_start
         offs_cn = (pid_n * BLOCK_N).to(tl.int32)
 
-        TMA_condition = (group_start + BLOCK_M <= group_end)
+        TMA_condition = (group_start + BLOCK_M <= group_end) & (group)
         if TMA_condition: 
             tl._experimental_descriptor_store(c_desc_ptr, c, [offs_cm, offs_cn])
         else:
@@ -286,7 +286,8 @@ def m_grouped_gemm(A: Tensor,
         desc_helper.init_tma_descriptor("c")
 
         def grid(META):
-            assert N % META["BLOCK_N"] == 0, "Only support when N is a multiple of BLOCK_N"
+            assert (N * B.element_size()) % 16 == 0, "TMA required 16-byte alignment"
+            assert (K * B.element_size()) % 16 == 0, "TMA required 16-byte alignment"
             nonlocal desc_helper
             desc_helper.fill_2d_tma_descriptor(
                 "a",
@@ -390,7 +391,7 @@ if __name__=='__main__':
 
 
     groups = 128; z = groups
-    trans_b = True; print(f"{trans_b = }")
+    trans_b = False; print(f"{trans_b = }")
     device = f"cuda:{torch.cuda.device_count()-1}"
     batch_sizes = torch.Tensor(generate_random_list(groups, groups*5120)).to(device).to(torch.int64)
     # batch_sizes = torch.tensor([1] * 128, device=device, dtype=torch.int64)
@@ -398,7 +399,7 @@ if __name__=='__main__':
     batch_sizes_cpu = batch_sizes.cpu()
     M = batch_sizes.sum().item()
 
-    for (n, k) in ((768*2, 2048), (2048, 768), (1536*2, 4096), (4096, 1536)):
+    for (n, k) in ((768*2 + 8, 2048+8), (2048 + 8, 768+8), (1536*2, 4096+8), (4096, 1536+8)):
         torch.cuda.empty_cache()
         a = torch.randn(M, k, dtype = torch.bfloat16, device = device).view(-1, k)
         b = torch.randn(z, n, k, dtype = torch.bfloat16, device = device) if trans_b else torch.randn(z, k, n, dtype = torch.bfloat16, device = device)

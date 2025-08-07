@@ -163,7 +163,7 @@ def k_grouped_gemm(A: Tensor,
         desc_helper.init_tma_descriptor("c")
 
         def grid(META):
-            assert N % META["BLOCK_N"] == 0, "Only support when N is a multiple of BLOCK_N"
+            assert (N * B.element_size()) % 16 == 0, "TMA required 16-byte alignment"
             assert M % META["BLOCK_M"] == 0, "Only support when M is a multiple of BLOCK_M"
             nonlocal desc_helper
             desc_helper.fill_2d_tma_descriptor(
@@ -250,7 +250,7 @@ if __name__=='__main__':
     batch_sizes_cpu = batch_sizes.cpu()
     K = batch_sizes.sum().item()
 
-    for (m, n) in ((768*2, 2048), (2048, 768), (1536*2, 4096), (4096, 1536)):
+    for (m, n) in ((768*2, 2048 + 8), (2048, 768), (1536*2, 4096), (4096, 1536)):
         torch.cuda.empty_cache()
         a = torch.randn(K, m, dtype = torch.bfloat16, device = "cuda").view(K, -1)
         b = torch.randn(K, n, dtype = torch.bfloat16, device = "cuda").view(K, -1)

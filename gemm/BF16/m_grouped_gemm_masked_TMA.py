@@ -196,7 +196,8 @@ def m_grouped_gemm_masked(lhs: Tensor,
         desc_helper.init_tma_descriptor("c")
 
         def grid(META):
-            assert N % META["BLOCK_N"] == 0, "Only support when N is a multiple of BLOCK_N"
+            assert (N * rhs.element_size()) % 16 == 0, "TMA required 16-byte alignment"
+            assert (K * rhs.element_size()) % 16 == 0, "TMA required 16-byte alignment"
             assert M % BLOCK_M == 0, "Only support when M is a multiple of BLOCK_M"
             nonlocal desc_helper
             desc_helper.fill_2d_tma_descriptor(
@@ -296,7 +297,7 @@ if __name__=='__main__':
 
 
     groups = 128; z = groups
-    trans_b = True; print(f"{trans_b = }")
+    trans_b = False; print(f"{trans_b = }")
     expected_m = 4096
     device = f"cuda:{torch.cuda.device_count()-1}"
     batch_sizes = expected_m * torch.ones(groups, device = device, dtype = torch.int32)
@@ -311,7 +312,7 @@ if __name__=='__main__':
     M = batch_sizes.sum().item()
     M_masked = masked_m.sum().item()
 
-    for (n, k) in ((768*2, 2048), (2048, 768), (1536*2, 4096), (4096, 1536)):
+    for (n, k) in ((768*2 + 8, 2048 + 8), (2048, 768), (1536*2, 4096), (4096, 1536)):
         torch.cuda.empty_cache()
         a = torch.randn(M, k, dtype = torch.bfloat16, device = device).view(-1, k).requires_grad_(True)
         b = torch.randn(z, n, k, dtype = torch.bfloat16, device = device) if trans_b else torch.randn(z, k, n, dtype = torch.bfloat16, device = device).requires_grad_(True)
