@@ -20,12 +20,15 @@ The following BF16 implementations are available in `gemm/BF16`:
 
 
 ### M-Grouped Gemm with TMA vs Benchmark
+```python gemm/BF16/m_grouped_gemm_TMA.py```
 ![M-Grouped Gemm Benchmark](m_grouped_gemm.png)
 
 ### K-Grouped Gemm with TMA vs Benchmark
+```python gemm/BF16/k_grouped_gemm_TMA.py```
 ![K-Grouped Gemm Benchmark](k_grouped_gemm.png)
 
 ### M-Grouped Gemm with mask
+```python gemm/BF16/m_grouped_gemm_masked_TMA.py```
 ![M-Grouped Gemm Masked Benchmark](m_grouped_gemm_masked.png)
 
 

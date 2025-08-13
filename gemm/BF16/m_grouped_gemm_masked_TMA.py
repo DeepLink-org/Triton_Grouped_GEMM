@@ -297,7 +297,9 @@ if __name__=='__main__':
 
 
     groups = 128; z = groups
-    trans_b = False; print(f"{trans_b = }")
+    trans_b = True; print(f"{trans_b = }")
+    if trans_b == False:
+        raise NotImplementedError("Not support when trans_b != True")
     expected_m = 4096
     device = f"cuda:{torch.cuda.device_count()-1}"
     batch_sizes = expected_m * torch.ones(groups, device = device, dtype = torch.int32)
@@ -312,7 +314,7 @@ if __name__=='__main__':
     M = batch_sizes.sum().item()
     M_masked = masked_m.sum().item()
 
-    for (n, k) in ((768*2 + 8, 2048 + 8), (2048, 768), (1536*2, 4096), (4096, 1536)):
+    for (n, k) in ((768*2, 2048), (2048, 768), (1536*2, 4096), (4096, 1536)):
         torch.cuda.empty_cache()
         a = torch.randn(M, k, dtype = torch.bfloat16, device = device).view(-1, k).requires_grad_(True)
         b = torch.randn(z, n, k, dtype = torch.bfloat16, device = device) if trans_b else torch.randn(z, k, n, dtype = torch.bfloat16, device = device).requires_grad_(True)

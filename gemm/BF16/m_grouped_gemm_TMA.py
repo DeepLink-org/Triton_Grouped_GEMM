@@ -399,7 +399,7 @@ if __name__=='__main__':
     batch_sizes_cpu = batch_sizes.cpu()
     M = batch_sizes.sum().item()
 
-    for (n, k) in ((768*2 + 8, 2048+8), (2048 + 8, 768+8), (1536*2, 4096+8), (4096, 1536+8)):
+    for (n, k) in ((768*2, 2048), (2048, 768), (1536*2, 4096), (4096, 1536)):
         torch.cuda.empty_cache()
         a = torch.randn(M, k, dtype = torch.bfloat16, device = device).view(-1, k)
         b = torch.randn(z, n, k, dtype = torch.bfloat16, device = device) if trans_b else torch.randn(z, k, n, dtype = torch.bfloat16, device = device)
@@ -434,8 +434,8 @@ if __name__=='__main__':
                 out_triton = m_grouped_gemm(a, b, batch_sizes, trans_b)
                 torch.cuda.synchronize(device = device)
                 prof.step()
-        diff = out_triton - out_ref
-        breakpoint()
+        # diff = out_triton - out_ref
+        # breakpoint()
         # post-process, row normalization
         out_triton = row_max_normalization(out_triton)
         out_ref = row_max_normalization(out_ref)
