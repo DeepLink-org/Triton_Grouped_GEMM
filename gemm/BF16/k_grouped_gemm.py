@@ -185,11 +185,8 @@ if __name__=='__main__':
     from torch.library import triton_op, wrap_triton
 
     from utils import generate_random_list, row_max_normalization
-    
-    torch.manual_seed(123)
-    torch.cuda.manual_seed(123)
-    torch.cuda.manual_seed_all(123)
-    
+    import grouped_gemm_backend as backend
+    trans_b = False; trans_a = True
 
     def gmm_dw(a, b, batch_sizes):
         K, M = a.shape
@@ -221,12 +218,11 @@ if __name__=='__main__':
         b = torch.randn(K, n, dtype = torch.bfloat16, device = "cuda").view(K, -1)
         out_ref = gmm_dw(a, b, batch_sizes.cpu())
         out_cublas = torch.empty_like(out_ref)
-        out_cutlass = torch.empty_like(out_ref)
 
         from pathlib import Path
         script_path = Path(__file__).resolve()
         parent_dir = script_path.parent.parent
-        trace_file = f"{parent_dir}/trace/gmm_dw_triton_M{m}_N{n}"  + ".json"
+        trace_file = f"{parent_dir}/trace/gmm_dw_triton_cublas_M{m}_N{n}"  + ".json"
         import os
         Path(os.path.join(parent_dir, "trace")) .mkdir(parents=True, exist_ok=True)
         active_ = 3
@@ -246,27 +242,22 @@ if __name__=='__main__':
             record_shapes=True,) as prof:
             for i in range(4+active_):
                 with record_function(f"Triton_record"):
-                    
                     out_triton = k_grouped_gemm(a, b, batch_sizes)
+                torch.cuda.synchronize()
+
+                with record_function(f"Cublas_record"):
+                    backend.gmm(a, b, out_cublas, batch_sizes_cpu, trans_a, trans_b, -1, False)
                 torch.cuda.synchronize()
                 prof.step()
 
         # post-process, row normalization
+        out_cublas = row_max_normalization(out_cublas)
         out_triton = row_max_normalization(out_triton)
         out_ref = row_max_normalization(out_ref)
     
-        # try:
         torch.testing.assert_close(out_triton, out_ref, rtol = 0.01, atol = 0.01)
-        # except:
-        #     abs_diff = torch.abs(out_triton - out_ref)
-        #     max_diff = torch.max(abs_diff)
-            
-        #     # 获取最大值的多维索引
-        #     max_indices = torch.where(abs_diff == max_diff)
-            
-        #     # 可能有多个位置具有相同的最大值，这里取第一个
-        #     i, j, k = max_indices[0][0].item(), max_indices[1][0].item(), max_indices[2][0].item()
-        #     breakpoint()
+        torch.testing.assert_close(out_triton, out_cublas, rtol = 0.01, atol = 0.01)
+        torch.cuda.empty_cache()
 
         print(f"{m = }, {n = }, {K = }")
         
@@ -275,14 +266,39 @@ if __name__=='__main__':
         with open(trace_file, "r") as file:
             data = json.load(file)
 
-        triton_time = 0
-        cublas_time = 0
-        cutlass_time = 0
-        for event in data["traceEvents"]:
-            try:
-                if "k_grouped_gemm" in event["name"]:
-                    triton_time += event["dur"] / 1000
-            except:
-                pass
-        triton_time /= active_
+        def process_events(data, record_function):
+            func_dict = {}
+            
+            # Process each event to collect cublas records
+            for event in data["traceEvents"]:
+                if event["name"] == record_function and "gpu_user_annotation" in event["cat"]:
+                    start = event["ts"]
+                    end = start + event["dur"]
+                    # import pdb; pdb.set_trace()
+                    cpu_id = event['args']['External id']
+                    
+                    if cpu_id not in func_dict:
+                        # Initialize if id doesn't exist
+                        func_dict[cpu_id] = {"start": start, "end": end}
+                    else:
+                        # Update start and end if id exists
+                        func_dict[cpu_id]["start"] = min(start, func_dict[cpu_id]["start"])
+                        func_dict[cpu_id]["end"] = max(end, func_dict[cpu_id]["end"])
+            
+            # Calculate duration for each cublas event in microseconds
+            durations = []
+            for cpu_id in func_dict:
+                duration = (func_dict[cpu_id]["end"] - func_dict[cpu_id]["start"]) / 1000  # Convert to milliseconds
+                func_dict[cpu_id]["dur"] = duration
+                durations.append(duration)
+            
+            # Calculate average duration if there are any events
+            func_time = sum(durations) / len(durations) if durations else 0
+            
+            return func_dict, func_time
+
+        cublas_dict, cublas_time = process_events(data, "Cublas_record")
+        triton_dict, triton_time = process_events(data, "Triton_record")
+
         print(f"    Pure Triton kernel Elapsed time {round((triton_time), 2)} ms, {round((2*m*n*K )/(triton_time)/10**9, 0)} tflops")
+        print(f"    Cublas kernel Elapsed time {round((cublas_time), 2)} ms, {round((2*m*n*K )/(cublas_time)/10**9, 0)} tflops, acceleration {cublas_time/triton_time: .2f}")

@@ -7,6 +7,17 @@ This repository provides optimized implementations of grouped GEMM using Triton.
 - Various quantization schemes for FP8 implementations
 - Included unit tests for varification
 
+## Prerequisites
+
+Before using this project, you need to install the benchmark CUDA Basic Linear Algebra Subroutines (cuBLAS) in the `grouped_gemm` subdirectory.
+
+```bash
+# 1. Navigate to the `grouped_gemm` directory:
+cd grouped_gemm
+# 2. Install the package using Python:
+python setup.py install
+```
+
 ## BF16 Implementations
 
 The following BF16 implementations are available in `gemm/BF16`:
@@ -14,18 +25,28 @@ The following BF16 implementations are available in `gemm/BF16`:
 
 | Script | Gemm Type |
 |---------|---------|
-|`m_grouped_gemm_masked_TMA.py` | M-Grouped Gemm with mask | 
-|`m_grouped_gemm_TMA.py` | M-Grouped Gemm |
-|`k_grouped_gemm_TMA.py` | K-Grouped Gemm |
+|`m_grouped_gemm_masked_TMA.py` | M-Grouped Gemm with mask with cuda arch >= 90 | 
+|`m_grouped_gemm_TMA.py` | M-Grouped Gemm with cuda arch >= 90 | 
+|`k_grouped_gemm_TMA.py` | K-Grouped Gemm with cuda arch >= 90 | 
+|`m_grouped_gemm.py` | M-Grouped Gemm with cuda arch >= 80 | 
+|`k_grouped_gemm.py` | K-Grouped Gemm with cuda arch >= 80 | 
 
 
-### M-Grouped Gemm with TMA vs Benchmark
+### H800: M-Grouped Gemm with TMA vs Benchmark
 ```python gemm/BF16/m_grouped_gemm_TMA.py```
-![M-Grouped Gemm Benchmark](m_grouped_gemm.png)
+![H800: M-Grouped Gemm Benchmark](m_grouped_gemm.png)
 
-### K-Grouped Gemm with TMA vs Benchmark
+### A100: M-Grouped Gemm vs Benchmark
+```python gemm/BF16/m_grouped_gemm.py```
+![A100: M-Grouped Gemm Benchmark](m_grouped_gemm_A100.png)
+
+### H800: K-Grouped Gemm with TMA vs Benchmark
 ```python gemm/BF16/k_grouped_gemm_TMA.py```
-![K-Grouped Gemm Benchmark](k_grouped_gemm.png)
+![H800: K-Grouped Gemm Benchmark](k_grouped_gemm.png)
+
+### A100: K-Grouped Gemm vs Benchmark
+```python gemm/BF16/k_grouped_gemm_TMA.py```
+![A100: K-Grouped Gemm Benchmark](k_grouped_gemm_A100.png)
 
 ### M-Grouped Gemm with mask
 ```python gemm/BF16/m_grouped_gemm_masked_TMA.py```

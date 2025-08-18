@@ -313,7 +313,8 @@ if __name__=='__main__':
     
     from torch.profiler import ProfilerActivity, profile, record_function
     from torch.library import triton_op, wrap_triton
-    # import grouped_gemm_backend as backend
+    import grouped_gemm_backend as backend
+    use_cutlass = 0; trans_a = False
 
     from utils import generate_random_list, row_max_normalization
 
@@ -328,24 +329,25 @@ if __name__=='__main__':
             start += size
         return torch.cat(out)
 
-
     groups = 128; z = groups
-    trans_b = False; print(f"{trans_b = }")
-    device = f"cuda:{torch.cuda.device_count()-1}"
-    batch_sizes = torch.Tensor(generate_random_list(groups, groups*5120)).to(device).to(torch.int64)
-    # batch_sizes[-2] = 0
-    # print(f"{batch_sizes=}")
+    trans_b = True; print(f"{trans_b = }")
+    batch_sizes = torch.Tensor(generate_random_list(groups, groups*4096)).cuda().to(torch.int64)
     batch_sizes_cpu = batch_sizes.cpu()
     M = batch_sizes.sum().item()
 
     for (n, k) in ((768*2, 2048), (2048, 768), (1536*2, 4096), (4096, 1536)):
+        # for (n, k) in ((4096, 1536),):
         torch.cuda.empty_cache()
-        a = torch.randn(M, k, dtype = torch.bfloat16, device = device).view(-1, k)
-        b = torch.randn(z, n, k, dtype = torch.bfloat16, device = device) if trans_b else torch.randn(z, k, n, dtype = torch.bfloat16, device = device)
+        a = torch.randn(M, k, dtype = torch.bfloat16, device = "cuda").view(-1, k).requires_grad_(True)
+        b = torch.randn(z, n, k, dtype = torch.bfloat16, device = "cuda") if trans_b else torch.randn(z, k, n, dtype = torch.bfloat16, device = "cuda").requires_grad_(True)
         out_ref = gmm(a, b, batch_sizes.cpu(), trans_b)
+        out_cublas = out_ref.new_empty(out_ref.size())
+        out_cutlass = out_ref.new_empty(out_ref.size())
 
         for i in range(3):
             out_triton = m_grouped_gemm(a, b, batch_sizes, trans_b)
+            backend.gmm(a, b, out_cublas, batch_sizes_cpu, False, trans_b, -1, False)
+            # backend.gmm(a, b, out_cutlass, batch_sizes, False, trans_b, -1, True)
 
         from pathlib import Path
         script_path = Path(__file__).resolve()
@@ -354,7 +356,10 @@ if __name__=='__main__':
         trace_file = f"{parent_dir}/trace/gmm_triton_cublas_cutlass_N{n}_K{k}"  + ".json"
         import os
         Path(os.path.join(parent_dir, "trace")) .mkdir(parents=True, exist_ok=True)
-        activate_ = 10
+
+        def trace_handler(prof):
+            prof.export_chrome_trace(trace_file)
+        activate_ = 30
         def trace_handler(prof):
             prof.export_chrome_trace(trace_file)
         with profile(
@@ -362,39 +367,70 @@ if __name__=='__main__':
                     ProfilerActivity.CPU, ProfilerActivity.CUDA
             ],
             schedule=torch.profiler.schedule(
-                wait=1,
-                warmup=3,
+                wait=5,
+                warmup=5,
                 active=activate_,
                 repeat=0),
             on_trace_ready=trace_handler,
             with_modules = True,
             record_shapes=True,) as prof:
-            for i in range(4+activate_):
-                out_triton = m_grouped_gemm(a, b, batch_sizes, trans_b)
-                torch.cuda.synchronize(device = device)
+            for i in range(10+activate_):
+                with record_function(f"Triton_record"):
+                    out_triton = m_grouped_gemm(a, b, batch_sizes, trans_b)
+                with record_function(f"Cublas_record"):
+                    backend.gmm(a, b, out_cublas, batch_sizes_cpu, False, trans_b, -1, False)
+                # with record_function(f"Cutlass_record"):
+                #     backend.gmm(a, b, out_cutlass, batch_sizes, False, trans_b, -1, True)
                 prof.step()
-        # diff = out_triton - out_ref
-        # breakpoint()
+
         # post-process, row normalization
         out_triton = row_max_normalization(out_triton)
+        out_cublas = row_max_normalization(out_cublas)
+        # out_cutlass = row_max_normalization(out_cutlass)
         out_ref = row_max_normalization(out_ref)
-        torch.cuda.empty_cache()
 
         torch.testing.assert_close(out_triton, out_ref, rtol = 1e-02, atol = 1e-02)
+        torch.testing.assert_close(out_cublas, out_ref, rtol = 5e-03, atol = 5e-03)
+        # torch.testing.assert_close(out_cutlass, out_ref, rtol = 1e-02, atol = 1e-02)
 
-        print(f"{n = }, {k = }, {M = }, {trace_file = }")
+        print(f"{n = }, {k = }, {M = }")
         
-
         import json
         with open(trace_file, "r") as file:
             data = json.load(file)
 
-        triton_time = 0
-        for event in data["traceEvents"]:
-            try:
-                if "m_grouped_gemm_" in event["name"]:
-                    triton_time += event["dur"] / 1000
-            except:
-                pass
-        triton_time /= activate_
+        def process_events(data, record_function):
+            func_dict = {}
+            
+            # Process each event to collect cublas records
+            for event in data["traceEvents"]:
+                if event["name"] == record_function and "gpu_user_annotation" in event["cat"]:
+                    start = event["ts"]
+                    end = start + event["dur"]
+                    # import pdb; pdb.set_trace()
+                    cpu_id = event['args']['External id']
+                    
+                    if cpu_id not in func_dict:
+                        # Initialize if id doesn't exist
+                        func_dict[cpu_id] = {"start": start, "end": end}
+                    else:
+                        # Update start and end if id exists
+                        func_dict[cpu_id]["start"] = min(start, func_dict[cpu_id]["start"])
+                        func_dict[cpu_id]["end"] = max(end, func_dict[cpu_id]["end"])
+            
+            # Calculate duration for each cublas event in microseconds
+            durations = []
+            for cpu_id in func_dict:
+                duration = (func_dict[cpu_id]["end"] - func_dict[cpu_id]["start"]) / 1000  # Convert to milliseconds
+                func_dict[cpu_id]["dur"] = duration
+                durations.append(duration)
+            
+            # Calculate average duration if there are any events
+            func_time = sum(durations) / len(durations) if durations else 0
+            
+            return func_dict, func_time
+
+        cublas_dict, cublas_time = process_events(data, "Cublas_record")
+        triton_dict, triton_time = process_events(data, "Triton_record")
         print(f"    Pure kernel Elapsed time {round((triton_time), 2)} ms, {round((2*M*n*k )/(triton_time)/10**9, 0)} tflops")
+        print(f"    Cublas kernel Elapsed time {round((cublas_time), 2)} ms, {round((2*M*n*k )/(cublas_time)/10**9, 0)} tflops, acceleration {cublas_time/triton_time: .2f}")
