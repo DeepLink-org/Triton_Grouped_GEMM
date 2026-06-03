@@ -313,7 +313,16 @@ if __name__=='__main__':
     
     from torch.profiler import ProfilerActivity, profile, record_function
     from torch.library import triton_op, wrap_triton
-    import grouped_gemm_backend as backend
+    try:
+        import grouped_gemm_backend as backend
+    except ModuleNotFoundError:
+        backend = None
+        print(
+            "grouped_gemm_backend is not installed; skipping cuBLAS baseline. "
+            "Install it with `cd grouped_gemm && python setup.py install` "
+            "if you need the cuBLAS comparison.",
+            flush=True,
+        )
     use_cutlass = 0; trans_a = False
 
     from utils import generate_random_list, row_max_normalization
@@ -341,12 +350,15 @@ if __name__=='__main__':
         a = torch.randn(M, k, dtype = torch.bfloat16, device = "cuda").view(-1, k).requires_grad_(True)
         b = torch.randn(z, n, k, dtype = torch.bfloat16, device = "cuda") if trans_b else torch.randn(z, k, n, dtype = torch.bfloat16, device = "cuda").requires_grad_(True)
         out_ref = gmm(a, b, batch_sizes.cpu(), trans_b)
-        out_cublas = out_ref.new_empty(out_ref.size())
+        out_cublas = out_ref.new_empty(out_ref.size()) if backend is not None else None
         out_cutlass = out_ref.new_empty(out_ref.size())
 
         for i in range(3):
             out_triton = m_grouped_gemm(a, b, batch_sizes, trans_b)
-            backend.gmm(a, b, out_cublas, batch_sizes_cpu, False, trans_b, -1, False)
+            torch.cuda.synchronize()
+            if backend is not None:
+                backend.gmm(a, b, out_cublas, batch_sizes_cpu, False, trans_b, -1, False)
+                torch.cuda.synchronize()
             # backend.gmm(a, b, out_cutlass, batch_sizes, False, trans_b, -1, True)
 
         from pathlib import Path
@@ -377,20 +389,25 @@ if __name__=='__main__':
             for i in range(10+activate_):
                 with record_function(f"Triton_record"):
                     out_triton = m_grouped_gemm(a, b, batch_sizes, trans_b)
-                with record_function(f"Cublas_record"):
-                    backend.gmm(a, b, out_cublas, batch_sizes_cpu, False, trans_b, -1, False)
+                torch.cuda.synchronize()
+                if backend is not None:
+                    with record_function(f"Cublas_record"):
+                        backend.gmm(a, b, out_cublas, batch_sizes_cpu, False, trans_b, -1, False)
+                    torch.cuda.synchronize()
                 # with record_function(f"Cutlass_record"):
                 #     backend.gmm(a, b, out_cutlass, batch_sizes, False, trans_b, -1, True)
                 prof.step()
 
         # post-process, row normalization
         out_triton = row_max_normalization(out_triton)
-        out_cublas = row_max_normalization(out_cublas)
+        if out_cublas is not None:
+            out_cublas = row_max_normalization(out_cublas)
         # out_cutlass = row_max_normalization(out_cutlass)
         out_ref = row_max_normalization(out_ref)
 
         torch.testing.assert_close(out_triton, out_ref, rtol = 1e-02, atol = 1e-02)
-        torch.testing.assert_close(out_cublas, out_ref, rtol = 5e-03, atol = 5e-03)
+        if out_cublas is not None:
+            torch.testing.assert_close(out_cublas, out_ref, rtol = 5e-03, atol = 5e-03)
         # torch.testing.assert_close(out_cutlass, out_ref, rtol = 1e-02, atol = 1e-02)
 
         print(f"{n = }, {k = }, {M = }")
@@ -430,7 +447,12 @@ if __name__=='__main__':
             
             return func_dict, func_time
 
-        cublas_dict, cublas_time = process_events(data, "Cublas_record")
         triton_dict, triton_time = process_events(data, "Triton_record")
-        print(f"    Pure kernel Elapsed time {round((triton_time), 2)} ms, {round((2*M*n*k )/(triton_time)/10**9, 0)} tflops")
-        print(f"    Cublas kernel Elapsed time {round((cublas_time), 2)} ms, {round((2*M*n*k )/(cublas_time)/10**9, 0)} tflops, acceleration {cublas_time/triton_time: .2f}")
+        flops = 2 * M * n * k
+        print(f"    Triton call Elapsed time {round((triton_time), 2)} ms, {round(flops / triton_time / 10**9, 0)} tflops")
+        if backend is not None:
+            cublas_dict, cublas_time = process_events(data, "Cublas_record")
+            print(f"    Cublas kernel Elapsed time {round((cublas_time), 2)} ms, {round(flops / cublas_time / 10**9, 0)} tflops")
+            print(f"    Triton speedup vs Cublas {cublas_time / triton_time: .2f}x")
+        else:
+            print("    Cublas baseline skipped because grouped_gemm_backend is not installed")

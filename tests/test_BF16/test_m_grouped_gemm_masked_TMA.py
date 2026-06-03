@@ -4,6 +4,10 @@ import os
 import sys
 from pathlib import Path
 
+_REPO_ROOT = next(parent for parent in Path(__file__).resolve().parents if (parent / "gemm").is_dir())
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 from gemm.BF16.m_grouped_gemm_masked_TMA import m_grouped_gemm_masked
 from gemm.BF16.utils import generate_random_list, row_max_normalization
 
@@ -101,4 +105,3 @@ if __name__=='__main__':
             except:
                 pass
         print(f"    Pure kernel Elapsed time {round((kernel_time), 2)} ms, {round((2*M_masked*n*k )/(kernel_time)/10**9, 0)} tflops")
-

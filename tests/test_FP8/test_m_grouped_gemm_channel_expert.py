@@ -3,6 +3,11 @@ from torch.profiler import ProfilerActivity, profile, record_function
 import os
 import sys
 from pathlib import Path
+
+_REPO_ROOT = next(parent for parent in Path(__file__).resolve().parents if (parent / "gemm").is_dir())
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 from gemm.FP8.m_grouped_gemm_channel_expert import gmm_fp8_act_per_channel_w_per_expert
 
 

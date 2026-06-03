@@ -5,7 +5,16 @@ from torch import Tensor
 import triton
 import triton.language as tl
 
-from utils import TmaAutoTuneHelper
+try:
+    from ..tma import ensure_triton_tma_allocator
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from gemm.tma import ensure_triton_tma_allocator
 
 def get_cuda_autotune_config():
     return [
@@ -45,7 +54,6 @@ def grouped_launch(pid,
 @triton.autotune(configs=get_cuda_autotune_config(), key=['N', 'K'])
 @triton.jit
 def m_grouped_gemm_masked_kernel(
-    a_desc_ptr, b_desc_ptr, c_desc_ptr,
     lhs,
     rhs,
     C,
@@ -79,6 +87,18 @@ def m_grouped_gemm_masked_kernel(
     num_pid_n = tl.cdiv(N, BLOCK_N)
     k_tiles = tl.cdiv(K, BLOCK_K)
     num_tiles = num_pid_m * num_pid_n
+    a_desc = tl.make_tensor_descriptor(
+        lhs,
+        shape=[M, K],
+        strides=[K, 1],
+        block_shape=[BLOCK_M, BLOCK_K],
+    )
+    b_desc = tl.make_tensor_descriptor(
+        rhs,
+        shape=[num_groups * N, K],
+        strides=[K, 1],
+        block_shape=[BLOCK_N, BLOCK_K],
+    )
 
     for tile_id in tl.range(start_pid, num_tiles, BLOCKS):
         
@@ -96,8 +116,8 @@ def m_grouped_gemm_masked_kernel(
         accumulator = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
         for k in tl.range(0, tl.cdiv(K, BLOCK_K)):
             # load ab
-            a = tl._experimental_descriptor_load(a_desc_ptr, [offs_am, offs_k], [BLOCK_M, BLOCK_K], dtypeA)
-            b = tl._experimental_descriptor_load(b_desc_ptr, [offs_bn, offs_k], [BLOCK_N, BLOCK_K], dtypeB)
+            a = a_desc.load([offs_am, offs_k]).to(dtypeA)
+            b = b_desc.load([offs_bn, offs_k]).to(dtypeB)
             # mma
             accumulator = tl.dot(a, b.T, acc=accumulator, input_precision = "tf32x3")
             offs_k += BLOCK_K
@@ -164,6 +184,7 @@ def m_grouped_gemm_masked(lhs: Tensor,
     """
     stream = torch.cuda.Stream(lhs.device)
     with torch.cuda.stream(stream):
+        ensure_triton_tma_allocator()
         assert lhs.dim() == 2
         assert rhs.dim() == 3
 
@@ -190,50 +211,10 @@ def m_grouped_gemm_masked(lhs: Tensor,
         dtype_b = dtype_mapping.get(rhs.dtype, -1)
         dtype_c = dtype_mapping.get(out.dtype, -1)
 
-        desc_helper = TmaAutoTuneHelper()
-        desc_helper.init_tma_descriptor("a")
-        desc_helper.init_tma_descriptor("b")
-        desc_helper.init_tma_descriptor("c")
-
         def grid(META):
             assert (N * rhs.element_size()) % 16 == 0, "TMA required 16-byte alignment"
             assert (K * rhs.element_size()) % 16 == 0, "TMA required 16-byte alignment"
             assert M % BLOCK_M == 0, "Only support when M is a multiple of BLOCK_M"
-            nonlocal desc_helper
-            desc_helper.fill_2d_tma_descriptor(
-                "a",
-                lhs.data_ptr(),
-                M,
-                K,
-                META["BLOCK_M"],
-                META["BLOCK_K"],
-                lhs.element_size(),
-            )
-            off_global_rowB = N * num_groups if trans_b else  K * num_groups
-            off_global_colB = K if trans_b else N
-            off_share_rowB = META["BLOCK_N"] if trans_b else META["BLOCK_K"]
-            off_share_colB = META["BLOCK_K"] if trans_b else META["BLOCK_N"]
-
-            desc_helper.fill_2d_tma_descriptor(
-                "b",
-                rhs.data_ptr(),
-                off_global_rowB,
-                off_global_colB,
-                off_share_rowB,
-                off_share_colB,
-                rhs.element_size(),
-            )
-
-            desc_helper.fill_2d_tma_descriptor(
-                "c",
-                out.data_ptr(),
-                M,
-                N,
-                META["BLOCK_M"],
-                META["BLOCK_N"],
-                out.element_size(),
-            )
-
             return (NUM_SMS, )
 
         BLOCK_M = 128
@@ -247,12 +228,7 @@ def m_grouped_gemm_masked(lhs: Tensor,
         
         pad_mask_start = masked_per_group_padding.cumsum(0) - masked_per_group_padding
 
-        desc_a = desc_helper.get_tma_descriptor_kernel_param("a")
-        desc_b = desc_helper.get_tma_descriptor_kernel_param("b")
-        desc_c = desc_helper.get_tma_descriptor_kernel_param("c")
-
-        wrap_triton(m_grouped_gemm_masked_kernel)[grid](
-                desc_a, desc_b, desc_c,
+        m_grouped_gemm_masked_kernel[grid](
                 lhs,
                 rhs,
                 out,
@@ -280,9 +256,18 @@ if __name__=='__main__':
     
     from torch.profiler import ProfilerActivity, profile, record_function
     from torch.library import triton_op, wrap_triton
-    # import grouped_gemm_backend as backend
 
     from utils import generate_random_list, row_max_normalization
+    try:
+        import grouped_gemm_backend as backend
+    except ModuleNotFoundError:
+        backend = None
+        print(
+            "grouped_gemm_backend is not installed; skipping cuBLAS baseline. "
+            "Install it with `cd grouped_gemm && python setup.py install` "
+            "if you need the cuBLAS comparison.",
+            flush=True,
+        )
 
     def gmm(a, b, batch_sizes, trans_b=False):
         batch_sizes = batch_sizes.numpy()
@@ -301,7 +286,7 @@ if __name__=='__main__':
     if trans_b == False:
         raise NotImplementedError("Not support when trans_b != True")
     expected_m = 4096
-    device = f"cuda:{torch.cuda.device_count()-1}"
+    device = "cuda"
     batch_sizes = expected_m * torch.ones(groups, device = device, dtype = torch.int32)
 
     masked_m = torch.Tensor(generate_random_list(groups, groups*1024)).to(device).to(torch.int64).abs()
@@ -313,6 +298,8 @@ if __name__=='__main__':
     batch_sizes_cpu = batch_sizes.cpu()
     M = batch_sizes.sum().item()
     M_masked = masked_m.sum().item()
+    masked_m_cpu = masked_m.cpu()
+    active_groups = [g for g, size in enumerate(masked_m_cpu.tolist()) if size > 0]
 
     for (n, k) in ((768*2, 2048), (2048, 768), (1536*2, 4096), (4096, 1536)):
         torch.cuda.empty_cache()
@@ -320,6 +307,17 @@ if __name__=='__main__':
         b = torch.randn(z, n, k, dtype = torch.bfloat16, device = device) if trans_b else torch.randn(z, k, n, dtype = torch.bfloat16, device = device).requires_grad_(True)
         out_ref = gmm(a, b, batch_sizes.cpu(), trans_b)
         out_triton = torch.empty((M, n), dtype = torch.bfloat16, device = device)
+        if backend is not None:
+            packed_a = torch.cat([
+                a[g * expected_m:g * expected_m + int(masked_m_cpu[g].item()), :]
+                for g in active_groups
+            ])
+            active_group_tensor = torch.tensor(active_groups, device=device, dtype=torch.long)
+            packed_b = b.index_select(0, active_group_tensor)
+            packed_sizes_cpu = masked_m_cpu[active_groups]
+            out_cublas = torch.empty((M_masked, n), dtype = torch.bfloat16, device = device)
+        else:
+            out_cublas = None
 
         from pathlib import Path
         script_path = Path(__file__).resolve()
@@ -344,18 +342,31 @@ if __name__=='__main__':
             with_modules = True,
             record_shapes=True,) as prof:
             for i in range(4+active_):
-                m_grouped_gemm_masked(a, b, out_triton, masked_m, expected_m, trans_b)
+                with record_function(f"Triton_record"):
+                    m_grouped_gemm_masked(a, b, out_triton, masked_m, expected_m, trans_b)
                 torch.cuda.synchronize(device = device)
+                if backend is not None:
+                    with record_function(f"Cublas_record"):
+                        backend.gmm(packed_a, packed_b, out_cublas, packed_sizes_cpu, False, trans_b, -1, False)
+                    torch.cuda.synchronize(device = device)
                 prof.step()
 
         # post-process, row normalization
         out_triton = row_max_normalization(out_triton)
         out_ref = row_max_normalization(out_ref)
+        if out_cublas is not None:
+            out_cublas = row_max_normalization(out_cublas)
 
         group_end = batch_sizes.cumsum(0) - batch_sizes + masked_m
         group_start = batch_sizes.cumsum(0) - batch_sizes
         for g in range(groups):
             torch.testing.assert_close(out_triton[group_start[g]:group_end[g], :], out_ref[group_start[g]:group_end[g], :], rtol = 0.001, atol = 0.005)
+        if out_cublas is not None:
+            active_ref = torch.cat([
+                out_ref[g * expected_m:g * expected_m + int(masked_m_cpu[g].item()), :]
+                for g in active_groups
+            ])
+            torch.testing.assert_close(out_cublas, active_ref, rtol = 0.01, atol = 0.01)
         print(f"{n = }, {k = }, {M_masked = }")
         
 
@@ -363,12 +374,32 @@ if __name__=='__main__':
         with open(trace_file, "r") as file:
             data = json.load(file)
 
-        kernel_time = 1000
-        for event in data["traceEvents"]:
-            try:
-                if "m_grouped_gemm_masked_kernel" in event["name"]:
-                    kernel_time = min(event["dur"] / 1000, kernel_time)
-            except:
-                pass
-        print(f"    Pure kernel Elapsed time {round((kernel_time), 2)} ms, {round((2*M_masked*n*k )/(kernel_time)/10**9, 0)} tflops")
+        def process_events(data, record_function):
+            func_dict = {}
+            for event in data["traceEvents"]:
+                if event["name"] == record_function and "gpu_user_annotation" in event["cat"]:
+                    start = event["ts"]
+                    end = start + event["dur"]
+                    cpu_id = event['args']['External id']
+                    if cpu_id not in func_dict:
+                        func_dict[cpu_id] = {"start": start, "end": end}
+                    else:
+                        func_dict[cpu_id]["start"] = min(start, func_dict[cpu_id]["start"])
+                        func_dict[cpu_id]["end"] = max(end, func_dict[cpu_id]["end"])
+            durations = []
+            for cpu_id in func_dict:
+                duration = (func_dict[cpu_id]["end"] - func_dict[cpu_id]["start"]) / 1000
+                func_dict[cpu_id]["dur"] = duration
+                durations.append(duration)
+            func_time = sum(durations) / len(durations) if durations else 0
+            return func_dict, func_time
 
+        triton_dict, triton_time = process_events(data, "Triton_record")
+        flops = 2 * M_masked * n * k
+        print(f"    Triton call Elapsed time {round((triton_time), 2)} ms, {round(flops / triton_time / 10**9, 0)} tflops")
+        if backend is not None:
+            cublas_dict, cublas_time = process_events(data, "Cublas_record")
+            print(f"    Cublas packed-active call Elapsed time {round((cublas_time), 2)} ms, {round(flops / cublas_time / 10**9, 0)} tflops")
+            print(f"    Triton speedup vs Cublas {cublas_time / triton_time: .2f}x")
+        else:
+            print("    Cublas baseline skipped because grouped_gemm_backend is not installed")

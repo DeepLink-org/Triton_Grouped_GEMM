@@ -4,6 +4,11 @@ import numpy as np
 import triton
 import triton.language as tl
 
+try:
+    from ..tma import ensure_triton_tma_allocator
+except ImportError:
+    from gemm.tma import ensure_triton_tma_allocator
+
 
 def get_cuda_autotune_config():
     return [
@@ -59,12 +64,12 @@ def grouped_launch(pid,
 @triton.autotune(configs=get_cuda_autotune_config(), key=['M','N'])
 @triton.jit
 def gemm_kernel_tma(
-                    a_desc_ptr, b_desc_ptr, c_desc_ptr,
+                    x_fp8, y_fp8, output,
                     a_scale, b_scale,
                     tokens_per_expert,
                     tokens_off,
-                    num_groups,
-                    M, N, K,
+                    num_groups: tl.constexpr,
+                    M: tl.constexpr, N: tl.constexpr, K: tl.constexpr,
                     dtype_a: tl.constexpr, dtype_b: tl.constexpr,
                     BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr, 
                     GROUP_M: tl.constexpr,
@@ -77,6 +82,24 @@ def gemm_kernel_tma(
 
     dtypeA = tl.float8e4nv if dtype_a == 1  else tl.float8e5
     dtypeB = tl.float8e4nv if dtype_b == 1  else tl.float8e5
+    a_desc = tl.make_tensor_descriptor(
+        x_fp8,
+        shape=[M, K],
+        strides=[K, 1],
+        block_shape=[BLOCK_M, BLOCK_K],
+    )
+    b_desc = tl.make_tensor_descriptor(
+        y_fp8,
+        shape=[N, K],
+        strides=[K, 1],
+        block_shape=[BLOCK_N, BLOCK_K],
+    )
+    c_desc = tl.make_tensor_descriptor(
+        output,
+        shape=[num_groups * M, N],
+        strides=[N, 1],
+        block_shape=[BLOCK_M, BLOCK_N],
+    )
 
     for tile_id in tl.range(start_pid, num_tiles, NUM_SMS):
         g = tile_id // (num_pid_m * num_pid_n)
@@ -108,84 +131,13 @@ def gemm_kernel_tma(
         b_s = tl.load(bs_ptrs)
 
         for kk in range(0, num_pid_k):
-            a = tl._experimental_descriptor_load(a_desc_ptr, [offs_am, offs_k], [BLOCK_M, BLOCK_K], dtypeA)
-            b = tl._experimental_descriptor_load(b_desc_ptr, [offs_bn, offs_k], [BLOCK_N, BLOCK_K], dtypeB)
+            a = a_desc.load([offs_am, offs_k]).to(dtypeA)
+            b = b_desc.load([offs_bn, offs_k]).to(dtypeB)
             accumulator = tl.dot(a, b.T, acc=accumulator, out_dtype=tl.float32)
             offs_k += BLOCK_K
         accumulator *= (a_s * b_s.T)
         accumulator = accumulator.to(tl.bfloat16)
-        tl._experimental_descriptor_store(c_desc_ptr, accumulator, [offs_am + g * M, offs_bn])
-
-
-HAS_TMA_DESC = "nv_tma_desc_type" in dir(tl)
-# TmaAutoTuneHelper used in htyu's PR #5622
-class TmaAutoTuneHelper:
-
-    # duck typing wrapper to implement the same interface as TmaDescKernelParam in Triton PR #4498
-    class KernelParamWrapper:
-
-        def __init__(self, desc):
-            self.desc = desc
-
-        def tma_desc_cpu_ptr(self):
-            return self.desc.data_ptr()
-
-    TMA_SIZE = 512
-
-    def __init__(self):
-        self.fill_1d_tma_descriptor_inner = (triton.runtime.driver.active.utils.fill_1d_tma_descriptor)
-        self.fill_2d_tma_descriptor_inner = (triton.runtime.driver.active.utils.fill_2d_tma_descriptor)
-        if HAS_TMA_DESC:
-            self.descriptors = {}
-        else:
-            self.cuda_descriptors = {}
-
-    # Call this method outside of the lambda function for grid size
-    def init_tma_descriptor(self, name):
-        if HAS_TMA_DESC:
-            self.descriptors[name] = torch.empty(TmaAutoTuneHelper.TMA_SIZE, device="cpu", dtype=torch.int8)
-        else:
-            self.cuda_descriptors[name] = torch.empty(TmaAutoTuneHelper.TMA_SIZE, device="cuda", dtype=torch.int8)
-
-    # Call this method inside the lambda function for grid size
-    def fill_1d_tma_descriptor(self, name, ptr, dim, block_dim, element_size):
-        if HAS_TMA_DESC:
-            desc_x = self.descriptors[name]
-            assert desc_x.data_ptr() % 64 == 0
-            self.fill_1d_tma_descriptor_inner(ptr, dim, block_dim, element_size, desc_x.data_ptr())
-        else:
-            desc_x = self.cuda_descriptors[name]
-            buf_x = torch.empty_like(desc_x, device="cpu", pin_memory=True)
-            self.fill_1d_tma_descriptor_inner(ptr, dim, block_dim, element_size, buf_x.data_ptr())
-            desc_x.copy_(buf_x, non_blocking=True)
-
-    # Call this method inside the lambda function for grid size
-    def fill_2d_tma_descriptor(self, name, ptr, dim1, dim0, block_dim1, block_dim0, element_size):
-        if HAS_TMA_DESC:
-            desc_x = self.descriptors[name]
-            assert desc_x.data_ptr() % 64 == 0
-            self.fill_2d_tma_descriptor_inner(ptr, dim1, dim0, block_dim1, block_dim0, element_size, desc_x.data_ptr())
-        else:
-            desc_x = self.cuda_descriptors[name]
-            buf_x = torch.empty_like(desc_x, device="cpu", pin_memory=True)
-            self.fill_2d_tma_descriptor_inner(ptr, dim1, dim0, block_dim1, block_dim0, element_size, buf_x.data_ptr())
-            desc_x.copy_(buf_x, non_blocking=True)
-
-    def get_tma_descriptor_kernel_param(self, name):
-        if HAS_TMA_DESC:
-            assert self.descriptors[name] is not None
-            return self.KernelParamWrapper(self.descriptors[name])
-        else:
-            assert self.cuda_descriptors[name] is not None
-            return self.cuda_descriptors[name]
-
-    
-class KernelParamWrapper:
-    def __init__(self, desc):
-        self.desc = desc
-
-    def tma_desc_cpu_ptr(self):
-        return self.desc.data_ptr()
+        c_desc.store([offs_am + g * M, offs_bn], accumulator)
 
 
 def matmul(
@@ -200,60 +152,21 @@ def matmul(
         num_groups: int, 
         dtype_a: int = 1, 
         dtype_b: int = 1) -> torch.Tensor:
-    desc_helper = TmaAutoTuneHelper()
-
+    ensure_triton_tma_allocator()
     output = torch.empty((num_groups, M, N), dtype=torch.bfloat16, device='cuda')
     token_off = tokens_per_expert.cumsum(0) - tokens_per_expert
     token_off = token_off.int()
 
-    desc_helper = TmaAutoTuneHelper()
-    desc_helper.init_tma_descriptor("a")
-    desc_helper.init_tma_descriptor("b")
-    desc_helper.init_tma_descriptor("c")
-
     NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
 
     def grid(META):
-        nonlocal desc_helper
-        desc_helper.fill_2d_tma_descriptor(
-            "a",
-            x_fp8.data_ptr(),
-            M,
-            K,
-            META["BLOCK_M"],
-            META["BLOCK_K"],
-            x_fp8.element_size(),
-        )
-
-        desc_helper.fill_2d_tma_descriptor(
-            "b",
-            y_fp8.data_ptr(),
-            N,
-            K,
-            META["BLOCK_N"],
-            META["BLOCK_K"],
-            y_fp8.element_size(),
-        )
-
-        desc_helper.fill_2d_tma_descriptor(
-            "c",
-            output.data_ptr(),
-            num_groups * M,
-            N,
-            META["BLOCK_M"],
-            META["BLOCK_N"],
-            output.element_size(),
-        )
         # return (triton.cdiv(M, META["BLOCK_M"]) * triton.cdiv(N, META["BLOCK_N"]), )
         return (
             (NUM_SMS,)
             )
 
-    desc_a = desc_helper.get_tma_descriptor_kernel_param("a")
-    desc_b = desc_helper.get_tma_descriptor_kernel_param("b")
-    desc_c = desc_helper.get_tma_descriptor_kernel_param("c")
     gemm_kernel_tma[grid](
-        desc_a, desc_b, desc_c,
+        x_fp8, y_fp8, output,
         x_scale,
         y_scale,
         tokens_per_expert, 
