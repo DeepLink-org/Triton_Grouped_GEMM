@@ -94,24 +94,26 @@ python gemm/BF16/m_grouped_gemm_TMA.py
 
 `trans_b=True` uses `B[G,N,K]`; `trans_b=False` uses `B[G,K,N]`. Output layout is `C[M,N]`.
 
+![BF16 M-Grouped GEMM TMA vs cuBLAS](m_grouped_gemm_TMA_cublas.png)
+
 | Case | Model | n | k | M | trans_b | Layout | Triton min/avg ms | Triton TFLOP/s min/avg | cuBLAS min/avg ms | cuBLAS TFLOP/s | Speedup |
 |------|-------|---|---|---|---------|--------|-------------------|------------------------|-------------------|----------------|---------|
-| 00 | 30B | 1536 | 2048 | 655360 | True | B[G,N,K] | 5.45 / 5.79 | 757 / 712 | 6.70 / 6.77 | 615 | 1.23x |
-| 01 | 30B | 1536 | 2048 | 655360 | True | B[G,N,K] | 5.63 / 5.87 | 733 / 702 | 6.52 / 6.60 | 632 | 1.16x |
-| 02 | 30B | 1536 | 2048 | 655360 | False | B[G,K,N] | 5.49 / 6.18 | 752 / 667 | 6.61 / 6.77 | 624 | 1.21x |
-| 03 | 30B | 1536 | 2048 | 655360 | False | B[G,K,N] | 5.46 / 5.99 | 756 / 688 | 6.60 / 6.72 | 625 | 1.21x |
-| 04 | 30B | 2048 | 768 | 655360 | True | B[G,N,K] | 3.24 / 3.41 | 635 / 604 | 3.61 / 3.62 | 572 | 1.11x |
-| 05 | 30B | 2048 | 768 | 655360 | True | B[G,N,K] | 3.14 / 3.14 | 657 / 656 | 3.60 / 3.63 | 573 | 1.15x |
-| 06 | 30B | 2048 | 768 | 655360 | False | B[G,K,N] | 3.37 / 3.43 | 612 / 601 | 3.61 / 3.63 | 571 | 1.07x |
-| 07 | 30B | 2048 | 768 | 655360 | False | B[G,K,N] | 3.12 / 3.13 | 660 / 659 | 3.23 / 3.53 | 638 | 1.03x |
-| 08 | 235B | 3072 | 4096 | 655360 | True | B[G,N,K] | 25.02 / 25.37 | 659 / 650 | 25.40 / 25.64 | 649 | 1.02x |
-| 09 | 235B | 3072 | 4096 | 655360 | True | B[G,N,K] | 24.11 / 24.23 | 684 / 681 | 25.05 / 25.09 | 658 | 1.04x |
-| 10 | 235B | 3072 | 4096 | 655360 | False | B[G,K,N] | 25.15 / 25.38 | 656 / 650 | 25.23 / 25.76 | 654 | 1.00x |
-| 11 | 235B | 3072 | 4096 | 655360 | False | B[G,K,N] | 23.93 / 24.26 | 689 / 680 | 25.05 / 25.11 | 658 | 1.05x |
-| 12 | 235B | 4096 | 1536 | 655360 | True | B[G,N,K] | 13.60 / 13.97 | 606 / 590 | 13.28 / 13.47 | 621 | 0.98x |
-| 13 | 235B | 4096 | 1536 | 655360 | True | B[G,N,K] | 12.04 / 12.81 | 685 / 644 | 12.87 / 12.92 | 641 | 1.07x |
-| 14 | 235B | 4096 | 1536 | 655360 | False | B[G,K,N] | 13.58 / 13.72 | 607 / 601 | 13.18 / 13.35 | 626 | 0.97x |
-| 15 | 235B | 4096 | 1536 | 655360 | False | B[G,K,N] | 11.33 / 12.67 | 728 / 651 | 12.82 / 12.89 | 643 | 1.13x |
+| 00 | 30B | 1536 | 2048 | 655360 | True | B[G,N,K] | 5.45&nbsp;/&nbsp;5.79 | 757&nbsp;/&nbsp;712 | 6.70&nbsp;/&nbsp;6.77 | 615 | 1.23x |
+| 01 | 30B | 1536 | 2048 | 655360 | True | B[G,N,K] | 5.63&nbsp;/&nbsp;5.87 | 733&nbsp;/&nbsp;702 | 6.52&nbsp;/&nbsp;6.60 | 632 | 1.16x |
+| 02 | 30B | 1536 | 2048 | 655360 | False | B[G,K,N] | 5.49&nbsp;/&nbsp;6.18 | 752&nbsp;/&nbsp;667 | 6.61&nbsp;/&nbsp;6.77 | 624 | 1.21x |
+| 03 | 30B | 1536 | 2048 | 655360 | False | B[G,K,N] | 5.46&nbsp;/&nbsp;5.99 | 756&nbsp;/&nbsp;688 | 6.60&nbsp;/&nbsp;6.72 | 625 | 1.21x |
+| 04 | 30B | 2048 | 768 | 655360 | True | B[G,N,K] | 3.24&nbsp;/&nbsp;3.41 | 635&nbsp;/&nbsp;604 | 3.61&nbsp;/&nbsp;3.62 | 572 | 1.11x |
+| 05 | 30B | 2048 | 768 | 655360 | True | B[G,N,K] | 3.14&nbsp;/&nbsp;3.14 | 657&nbsp;/&nbsp;656 | 3.60&nbsp;/&nbsp;3.63 | 573 | 1.15x |
+| 06 | 30B | 2048 | 768 | 655360 | False | B[G,K,N] | 3.37&nbsp;/&nbsp;3.43 | 612&nbsp;/&nbsp;601 | 3.61&nbsp;/&nbsp;3.63 | 571 | 1.07x |
+| 07 | 30B | 2048 | 768 | 655360 | False | B[G,K,N] | 3.12&nbsp;/&nbsp;3.13 | 660&nbsp;/&nbsp;659 | 3.23&nbsp;/&nbsp;3.53 | 638 | 1.03x |
+| 08 | 235B | 3072 | 4096 | 655360 | True | B[G,N,K] | 25.02&nbsp;/&nbsp;25.37 | 659&nbsp;/&nbsp;650 | 25.40&nbsp;/&nbsp;25.64 | 649 | 1.02x |
+| 09 | 235B | 3072 | 4096 | 655360 | True | B[G,N,K] | 24.11&nbsp;/&nbsp;24.23 | 684&nbsp;/&nbsp;681 | 25.05&nbsp;/&nbsp;25.09 | 658 | 1.04x |
+| 10 | 235B | 3072 | 4096 | 655360 | False | B[G,K,N] | 25.15&nbsp;/&nbsp;25.38 | 656&nbsp;/&nbsp;650 | 25.23&nbsp;/&nbsp;25.76 | 654 | 1.00x |
+| 11 | 235B | 3072 | 4096 | 655360 | False | B[G,K,N] | 23.93&nbsp;/&nbsp;24.26 | 689&nbsp;/&nbsp;680 | 25.05&nbsp;/&nbsp;25.11 | 658 | 1.05x |
+| 12 | 235B | 4096 | 1536 | 655360 | True | B[G,N,K] | 13.60&nbsp;/&nbsp;13.97 | 606&nbsp;/&nbsp;590 | 13.28&nbsp;/&nbsp;13.47 | 621 | 0.98x |
+| 13 | 235B | 4096 | 1536 | 655360 | True | B[G,N,K] | 12.04&nbsp;/&nbsp;12.81 | 685&nbsp;/&nbsp;644 | 12.87&nbsp;/&nbsp;12.92 | 641 | 1.07x |
+| 14 | 235B | 4096 | 1536 | 655360 | False | B[G,K,N] | 13.58&nbsp;/&nbsp;13.72 | 607&nbsp;/&nbsp;601 | 13.18&nbsp;/&nbsp;13.35 | 626 | 0.97x |
+| 15 | 235B | 4096 | 1536 | 655360 | False | B[G,K,N] | 11.33&nbsp;/&nbsp;12.67 | 728&nbsp;/&nbsp;651 | 12.82&nbsp;/&nbsp;12.89 | 643 | 1.13x |
 
 ### BF16 K-Grouped GEMM TMA vs cuBLAS
 
@@ -124,19 +126,20 @@ python gemm/BF16/k_grouped_gemm_TMA.py
 This benchmark uses the fast `trans_b=False` layout: `A[K_TOTAL,M_DIM]`,
 `B[K_TOTAL,N_DIM]`, `C[G,M_DIM,N_DIM]`.
 
+![BF16 K-Grouped GEMM TMA vs cuBLAS](k_grouped_gemm_TMA_cublas.png)
+
 | Case | Model | M_DIM | N_DIM | K_TOTAL | Layout | Triton min/avg ms | Triton TFLOP/s min/avg | cuBLAS min/avg ms | cuBLAS TFLOP/s | Speedup |
 |------|-------|-------|-------|---------|--------|-------------------|------------------------|-------------------|----------------|---------|
-| 00 | 30B | 1536 | 2048 | 655360 | B[K_TOTAL,N_DIM] | 5.22 / 5.52 | 789 / 748 | 6.38 / 6.63 | 647 | 1.22x |
-| 01 | 30B | 1536 | 2048 | 655360 | B[K_TOTAL,N_DIM] | 5.88 / 5.90 | 702 / 699 | 6.37 / 6.46 | 647 | 1.08x |
-| 02 | 30B | 2048 | 768 | 655360 | B[K_TOTAL,N_DIM] | 2.80 / 2.86 | 737 / 721 | 3.68 / 3.73 | 560 | 1.31x |
-| 03 | 30B | 2048 | 768 | 655360 | B[K_TOTAL,N_DIM] | 2.82 / 2.98 | 731 / 691 | 3.62 / 3.79 | 569 | 1.28x |
-| 04 | 235B | 3072 | 4096 | 655360 | B[K_TOTAL,N_DIM] | 23.89 / 24.31 | 690 / 678 | 24.23 / 24.87 | 681 | 1.01x |
-| 05 | 235B | 3072 | 4096 | 655360 | B[K_TOTAL,N_DIM] | 24.11 / 24.23 | 684 / 681 | 24.20 / 24.38 | 682 | 1.00x |
-| 06 | 235B | 4096 | 1536 | 655360 | B[K_TOTAL,N_DIM] | 12.25 / 12.77 | 673 / 646 | 12.55 / 12.63 | 657 | 1.02x |
-| 07 | 235B | 4096 | 1536 | 655360 | B[K_TOTAL,N_DIM] | 10.53 / 11.96 | 783 / 690 | 12.56 / 12.62 | 656 | 1.19x |
+| 00 | 30B | 1536 | 2048 | 655360 | B[K_TOTAL,N_DIM] | 5.22&nbsp;/&nbsp;5.52 | 789&nbsp;/&nbsp;748 | 6.38&nbsp;/&nbsp;6.63 | 647 | 1.22x |
+| 01 | 30B | 1536 | 2048 | 655360 | B[K_TOTAL,N_DIM] | 5.88&nbsp;/&nbsp;5.90 | 702&nbsp;/&nbsp;699 | 6.37&nbsp;/&nbsp;6.46 | 647 | 1.08x |
+| 02 | 30B | 2048 | 768 | 655360 | B[K_TOTAL,N_DIM] | 2.80&nbsp;/&nbsp;2.86 | 737&nbsp;/&nbsp;721 | 3.68&nbsp;/&nbsp;3.73 | 560 | 1.31x |
+| 03 | 30B | 2048 | 768 | 655360 | B[K_TOTAL,N_DIM] | 2.82&nbsp;/&nbsp;2.98 | 731&nbsp;/&nbsp;691 | 3.62&nbsp;/&nbsp;3.79 | 569 | 1.28x |
+| 04 | 235B | 3072 | 4096 | 655360 | B[K_TOTAL,N_DIM] | 23.89&nbsp;/&nbsp;24.31 | 690&nbsp;/&nbsp;678 | 24.23&nbsp;/&nbsp;24.87 | 681 | 1.01x |
+| 05 | 235B | 3072 | 4096 | 655360 | B[K_TOTAL,N_DIM] | 24.11&nbsp;/&nbsp;24.23 | 684&nbsp;/&nbsp;681 | 24.20&nbsp;/&nbsp;24.38 | 682 | 1.00x |
+| 06 | 235B | 4096 | 1536 | 655360 | B[K_TOTAL,N_DIM] | 12.25&nbsp;/&nbsp;12.77 | 673&nbsp;/&nbsp;646 | 12.55&nbsp;/&nbsp;12.63 | 657 | 1.02x |
+| 07 | 235B | 4096 | 1536 | 655360 | B[K_TOTAL,N_DIM] | 10.53&nbsp;/&nbsp;11.96 | 783&nbsp;/&nbsp;690 | 12.56&nbsp;/&nbsp;12.62 | 656 | 1.19x |
 
-The benchmark images below use explicit TMA/non-TMA filenames. They are retained
-as visual summaries and are not the source of the cuBLAS tables above.
+The charts above are generated from the same cuBLAS benchmark data as the tables.
 
 ## BF16 Implementations
 
@@ -150,13 +153,6 @@ The following BF16 implementations are available in `gemm/BF16`:
 |`k_grouped_gemm_TMA.py` | K-Grouped Gemm with cuda arch >= 90, Triton tensor descriptors | 
 |`m_grouped_gemm.py` | M-Grouped Gemm with cuda arch >= 80 | 
 |`k_grouped_gemm.py` | K-Grouped Gemm with cuda arch >= 80 | 
-
-
-
-
-
-
-
 
 ## FP8
 The following FP8 implementations are available in `gemm/FP8/`:
