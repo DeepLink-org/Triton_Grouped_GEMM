@@ -152,9 +152,6 @@ The following BF16 implementations are available in `gemm/BF16`:
 |`k_grouped_gemm.py` | K-Grouped Gemm with cuda arch >= 80 | 
 
 
-### H200/SM90: M-Grouped Gemm with TMA vs Torch Loop
-```python gemm/BF16/m_grouped_gemm_TMA.py```
-![H200/SM90: M-Grouped Gemm TMA Benchmark](m_grouped_gemm_TMA.png)
 
 
 
