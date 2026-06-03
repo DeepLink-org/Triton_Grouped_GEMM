@@ -172,10 +172,7 @@ The result of FP8 implementations
 | m_grouped_gemm_channel_expert   | 0.058349609375          | 9.3 ms              | 442.0  |
 | k_grouped_gemm_channel_expert   | 0.060546875             | 9.9 ms              | 646.0  |
 
-### Additional Resources
 
-For an alternative FP8 grouped GEMM that quantizes activation with 1x128 tile and weight with 128x128 block, please refer to:
-https://github.com/sukoncon/TMA-Adaptive-FP8-Grouped-GEMM.
 
 ### FP8 Update Notes
 
