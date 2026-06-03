@@ -89,7 +89,7 @@ speedup = cuBLAS_min_ms / Triton_min_ms
 Command:
 
 ```bash
-python /mnt/nvme1n1/ml_research/dlblas/gemm/BF16/m_grouped_gemm_TMA.py
+python gemm/BF16/m_grouped_gemm_TMA.py
 ```
 
 `trans_b=True` uses `B[G,N,K]`; `trans_b=False` uses `B[G,K,N]`. Output layout is `C[M,N]`.
@@ -118,7 +118,7 @@ python /mnt/nvme1n1/ml_research/dlblas/gemm/BF16/m_grouped_gemm_TMA.py
 Command:
 
 ```bash
-python /mnt/nvme1n1/ml_research/dlblas/gemm/BF16/k_grouped_gemm_TMA.py
+python gemm/BF16/k_grouped_gemm_TMA.py
 ```
 
 This benchmark uses the fast `trans_b=False` layout: `A[K_TOTAL,M_DIM]`,
